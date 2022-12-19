@@ -69,10 +69,10 @@ func newFrontendSchedulerWorkers(cfg Config, frontendAddress string, ring ring.R
 }
 
 func (f *frontendSchedulerWorkers) starting(ctx context.Context) error {
-	return services.StartAndAwaitRunning(ctx, f.watcher)
+	return services.StartAndAwaitRunning(context.Background(), f.watcher)
 }
 
-func (f *frontendSchedulerWorkers) stopping(_ error) error {
+func (f *frontendSchedulerWorkers) stopping(e error) error {
 	err := services.StopAndAwaitTerminated(context.Background(), f.watcher)
 
 	f.mu.Lock()

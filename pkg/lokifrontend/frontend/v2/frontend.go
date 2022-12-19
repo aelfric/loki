@@ -33,10 +33,11 @@ import (
 
 // Config for a Frontend.
 type Config struct {
-	SchedulerAddress  string            `yaml:"scheduler_address"`
-	DNSLookupPeriod   time.Duration     `yaml:"scheduler_dns_lookup_period"`
-	WorkerConcurrency int               `yaml:"scheduler_worker_concurrency"`
-	GRPCClientConfig  grpcclient.Config `yaml:"grpc_client_config"`
+	SchedulerAddress        string            `yaml:"scheduler_address"`
+	DNSLookupPeriod         time.Duration     `yaml:"scheduler_dns_lookup_period"`
+	WorkerConcurrency       int               `yaml:"scheduler_worker_concurrency"`
+	GRPCClientConfig        grpcclient.Config `yaml:"grpc_client_config"`
+	GracefulShutdownTimeout time.Duration     `yaml:"graceful_shutdown_timeout"`
 
 	// Used to find local IP address, that is sent to scheduler and querier-worker.
 	InfNames []string `yaml:"instance_interface_names" doc:"default=[<private network interfaces>]"`
@@ -50,6 +51,7 @@ func (cfg *Config) RegisterFlags(f *flag.FlagSet) {
 	f.StringVar(&cfg.SchedulerAddress, "frontend.scheduler-address", "", "DNS hostname used for finding query-schedulers.")
 	f.DurationVar(&cfg.DNSLookupPeriod, "frontend.scheduler-dns-lookup-period", 10*time.Second, "How often to resolve the scheduler-address, in order to look for new query-scheduler instances. Also used to determine how often to poll the scheduler-ring for addresses if the scheduler-ring is configured.")
 	f.IntVar(&cfg.WorkerConcurrency, "frontend.scheduler-worker-concurrency", 5, "Number of concurrent workers forwarding queries to single query-scheduler.")
+	f.DurationVar(&cfg.GracefulShutdownTimeout, "frontend.graceful-shutdown-timeout", 5*time.Minute, "Time to wait for inflight requests to finish before forcefully shutting down. This needs to be aligned with the query timeout and the graceful termination period of the process orchestrator.")
 
 	cfg.InfNames = netutil.PrivateNetworkInterfacesWithFallback([]string{"eth0", "en0"}, util_log.Logger)
 	f.Var((*flagext.StringSlice)(&cfg.InfNames), "frontend.instance-interface-names", "Name of network interface to read address from. This address is sent to query-scheduler and querier, which uses it to send the query response back to query-frontend.")
@@ -144,19 +146,29 @@ func NewFrontend(cfg Config, ring ring.ReadRing, log log.Logger, reg prometheus.
 }
 
 func (f *Frontend) starting(ctx context.Context) error {
-	return errors.Wrap(services.StartAndAwaitRunning(ctx, f.schedulerWorkers), "failed to start frontend scheduler workers")
+	return errors.Wrap(services.StartAndAwaitRunning(context.Background(), f.schedulerWorkers), "failed to start frontend scheduler workers")
 }
 
-func (f *Frontend) stopping(_ error) error {
+func (f *Frontend) stopping(e error) error {
+	t := time.NewTicker(500 * time.Millisecond)
+	defer t.Stop()
+
+	start := time.Now()
+
+	for range t.C {
+		inflight := f.requests.count()
+		if time.Since(start) > f.cfg.GracefulShutdownTimeout || inflight <= 0 {
+			break
+		}
+		level.Debug(f.log).Log("msg", "outstanding queries waiting to complete", "inflight", inflight, "waiting_secs", time.Since(start))
+	}
+	level.Debug(f.log).Log("msg", "no outstanding queries waiting to complete", "inflight", f.requests.count(), "waiting_secs", time.Since(start))
+
 	return errors.Wrap(services.StopAndAwaitTerminated(context.Background(), f.schedulerWorkers), "failed to stop frontend scheduler workers")
 }
 
 // RoundTripGRPC round trips a proto (instead of a HTTP request).
 func (f *Frontend) RoundTripGRPC(ctx context.Context, req *httpgrpc.HTTPRequest) (*httpgrpc.HTTPResponse, error) {
-	if s := f.State(); s != services.Running {
-		return nil, fmt.Errorf("frontend not running: %v", s)
-	}
-
 	tenantIDs, err := tenant.TenantIDs(ctx)
 	if err != nil {
 		return nil, err
@@ -259,6 +271,11 @@ func (f *Frontend) QueryResult(ctx context.Context, qrReq *frontendv2pb.QueryRes
 			level.Warn(f.log).Log("msg", "failed to write query result to the response channel", "queryID", qrReq.QueryID, "user", userID)
 		}
 	}
+	// TODO(chaudum): In case the the userIDs do not match, we do not send a
+	// response to the req.response channel.
+	// In that case, the RoundTripGRPC method waits until the request context deadline exceeds.
+	// Only then the function finished and the request is removed from the
+	// requests map.
 
 	return &frontendv2pb.QueryResultResponse{}, nil
 }
@@ -266,6 +283,10 @@ func (f *Frontend) QueryResult(ctx context.Context, qrReq *frontendv2pb.QueryRes
 // CheckReady determines if the query frontend is ready.  Function parameters/return
 // chosen to match the same method in the ingester
 func (f *Frontend) CheckReady(_ context.Context) error {
+	if s := f.State(); s != services.Running {
+		return fmt.Errorf("%v", s)
+	}
+
 	workers := f.schedulerWorkers.getWorkersCount()
 
 	// If frontend is connected to at least one scheduler, we are ready.
