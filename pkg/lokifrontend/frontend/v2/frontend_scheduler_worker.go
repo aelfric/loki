@@ -69,10 +69,16 @@ func newFrontendSchedulerWorkers(cfg Config, frontendAddress string, ring ring.R
 }
 
 func (f *frontendSchedulerWorkers) starting(ctx context.Context) error {
+	// Instead of re-using `ctx` from the frontendSchedulerWorkers service,
+	// `watcher` needs to use their own service context, because we want to
+	// control the stopping process in the `stopping` function of the
+	// frontendSchedulerWorkers. If we would use the same context, the child
+	// service would be stopped automatically as soon as the context of the
+	// parent service is cancelled.
 	return services.StartAndAwaitRunning(context.Background(), f.watcher)
 }
 
-func (f *frontendSchedulerWorkers) stopping(e error) error {
+func (f *frontendSchedulerWorkers) stopping(_ error) error {
 	err := services.StopAndAwaitTerminated(context.Background(), f.watcher)
 
 	f.mu.Lock()

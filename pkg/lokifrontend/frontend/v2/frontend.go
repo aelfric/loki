@@ -146,10 +146,15 @@ func NewFrontend(cfg Config, ring ring.ReadRing, log log.Logger, reg prometheus.
 }
 
 func (f *Frontend) starting(ctx context.Context) error {
+	// Instead of re-using `ctx` from the frontend service, `schedulerWorkers`
+	// needs to use their own service context, because we want to control the
+	// stopping process in the `stopping` function of the frontend. If we would
+	// use the same context, the child service would be stopped automatically as
+	// soon as the context of the parent service is cancelled.
 	return errors.Wrap(services.StartAndAwaitRunning(context.Background(), f.schedulerWorkers), "failed to start frontend scheduler workers")
 }
 
-func (f *Frontend) stopping(e error) error {
+func (f *Frontend) stopping(_ error) error {
 	t := time.NewTicker(500 * time.Millisecond)
 	defer t.Stop()
 
