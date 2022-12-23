@@ -157,13 +157,12 @@ func (f *Frontend) stopping(e error) error {
 
 	for range t.C {
 		inflight := f.requests.count()
-		elapsed := time.Since(start)
-		if elapsed > f.cfg.GracefulShutdownTimeout || inflight <= 0 {
-			level.Debug(f.log).Log("msg", "no outstanding queries waiting to complete", "inflight", f.requests.count(), "elapsed", elapsed)
+		if time.Since(start) > f.cfg.GracefulShutdownTimeout || inflight <= 0 {
 			break
 		}
-		level.Debug(f.log).Log("msg", "outstanding queries waiting to complete", "inflight", inflight, "elapsed", elapsed)
+		level.Debug(f.log).Log("msg", "outstanding queries waiting to complete", "inflight", inflight, "waiting_secs", time.Since(start))
 	}
+	level.Debug(f.log).Log("msg", "no outstanding queries waiting to complete", "inflight", f.requests.count(), "waiting_secs", time.Since(start))
 
 	return errors.Wrap(services.StopAndAwaitTerminated(context.Background(), f.schedulerWorkers), "failed to stop frontend scheduler workers")
 }
