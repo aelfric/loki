@@ -280,7 +280,7 @@ func TestFrontendStoppingWaitsForEmptyInflightRequests(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return f.requests.count() == inflightRequests
 	},
-		3*delayResponse, // wait at least 2*delayResponse to wait for queries to be finished and removed from inlight requests map
+		3*delayResponse, // wait at least 3*delayResponse to wait for queries to be finished and removed from inlight requests map
 		5*time.Millisecond,
 	)
 
