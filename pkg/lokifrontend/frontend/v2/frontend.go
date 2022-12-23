@@ -153,16 +153,26 @@ func (f *Frontend) stopping(e error) error {
 	t := time.NewTicker(500 * time.Millisecond)
 	defer t.Stop()
 
-	start := time.Now()
+	timeout := time.NewTimer(f.cfg.GracefulShutdownTimeout)
+	defer timeout.Stop()
 
-	for range t.C {
-		inflight := f.requests.count()
-		if time.Since(start) > f.cfg.GracefulShutdownTimeout || inflight <= 0 {
-			break
+	start := time.Now()
+	for loop := true; loop; {
+		select {
+		case now := <-t.C:
+			inflight := f.requests.count()
+			if inflight <= 0 {
+				level.Debug(f.log).Log("msg", "inflight requests completed", "inflight", inflight, "elapsed", now.Sub(start))
+				loop = false
+			} else {
+				level.Debug(f.log).Log("msg", "waiting for inflight requests to complete", "inflight", inflight, "elapsed", now.Sub(start))
+			}
+		case now := <-timeout.C:
+			inflight := f.requests.count()
+			level.Debug(f.log).Log("msg", "timed out waiting for inflight requests to complete", "inflight", inflight, "elapsed", now.Sub(start))
+			loop = false
 		}
-		level.Debug(f.log).Log("msg", "outstanding queries waiting to complete", "inflight", inflight, "waiting_secs", time.Since(start))
 	}
-	level.Debug(f.log).Log("msg", "no outstanding queries waiting to complete", "inflight", f.requests.count(), "waiting_secs", time.Since(start))
 
 	return errors.Wrap(services.StopAndAwaitTerminated(context.Background(), f.schedulerWorkers), "failed to stop frontend scheduler workers")
 }
