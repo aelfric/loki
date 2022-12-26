@@ -40,6 +40,7 @@ type StoreLimits interface {
 	MaxQueryLength(userID string) time.Duration
 }
 
+// NamedStores helps configure additional stores from a given storage provider
 type NamedStores struct {
 	AWS        map[string]aws.StorageConfig         `yaml:"aws"`
 	Azure      map[string]azure.BlobStorageConfig   `yaml:"azure"`
@@ -51,7 +52,7 @@ type NamedStores struct {
 
 // Config chooses which storage client to use.
 type Config struct {
-	AWSStorageConfig       aws.StorageConfig         `yaml:"aws" doc:"description=Configures storing chunks in AWS. Required options only required when aws is present."`
+	AWSStorageConfig       aws.StorageConfig         `yaml:"aws"`
 	AzureStorageConfig     azure.BlobStorageConfig   `yaml:"azure"`
 	BOSStorageConfig       baidubce.BOSStorageConfig `yaml:"bos"`
 	GCPStorageConfig       gcp.Config                `yaml:"bigtable" doc:"description=Configures storing indexes in Bigtable. Required fields only required when bigtable is defined in config."`
@@ -364,7 +365,7 @@ func NewObjectClient(name string, cfg Config, clientMetrics ClientMetrics) (clie
 	switch storeType {
 	case config.StorageTypeAWS, config.StorageTypeS3:
 		s3Cfg := cfg.AWSStorageConfig.S3Config
-		if namedStore != "" && cfg.NamedStores.AWS != nil {
+		if namedStore != "" {
 			awsCfg, ok := cfg.NamedStores.AWS[namedStore]
 			if !ok {
 				return nil, fmt.Errorf("Unrecognized named aws storage config %s", name)
@@ -376,7 +377,7 @@ func NewObjectClient(name string, cfg Config, clientMetrics ClientMetrics) (clie
 		return aws.NewS3ObjectClient(s3Cfg, cfg.Hedging)
 	case config.StorageTypeGCS:
 		gcsCfg := cfg.GCSConfig
-		if namedStore != "" && cfg.NamedStores.GCS != nil {
+		if namedStore != "" {
 			var ok bool
 			gcsCfg, ok = cfg.NamedStores.GCS[namedStore]
 			if !ok {
@@ -387,7 +388,7 @@ func NewObjectClient(name string, cfg Config, clientMetrics ClientMetrics) (clie
 		return gcp.NewGCSObjectClient(context.Background(), gcsCfg, cfg.Hedging)
 	case config.StorageTypeAzure:
 		azureCfg := cfg.AzureStorageConfig
-		if namedStore != "" && cfg.NamedStores.Azure != nil {
+		if namedStore != "" {
 			var ok bool
 			azureCfg, ok = cfg.NamedStores.Azure[namedStore]
 			if !ok {
@@ -411,7 +412,7 @@ func NewObjectClient(name string, cfg Config, clientMetrics ClientMetrics) (clie
 		return testutils.NewMockStorage(), nil
 	case config.StorageTypeFileSystem:
 		fsCfg := cfg.FSConfig
-		if namedStore != "" && cfg.NamedStores.Filesystem != nil {
+		if namedStore != "" {
 			var ok bool
 			fsCfg, ok = cfg.NamedStores.Filesystem[namedStore]
 			if !ok {
@@ -422,7 +423,7 @@ func NewObjectClient(name string, cfg Config, clientMetrics ClientMetrics) (clie
 		return local.NewFSObjectClient(fsCfg)
 	case config.StorageTypeBOS:
 		bosCfg := cfg.BOSStorageConfig
-		if namedStore != "" && cfg.NamedStores.BOS != nil {
+		if namedStore != "" {
 			var ok bool
 			bosCfg, ok = cfg.NamedStores.BOS[namedStore]
 			if !ok {
