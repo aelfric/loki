@@ -157,7 +157,7 @@ func (cfg *Config) validateNamedStores() error {
 }
 
 // NewIndexClient makes a new index client of the desired type.
-func NewIndexClient(periodCfg config.PeriodConfig, getTableRange func() config.TableRange, cfg Config, schemaCfg config.SchemaConfig, limits StoreLimits, cm ClientMetrics, ownsTenantFn downloads.IndexGatewayOwnsTenant, registerer prometheus.Registerer) (index.Client, error) {
+func NewIndexClient(periodCfg config.PeriodConfig, tableRange config.TableRange, cfg Config, schemaCfg config.SchemaConfig, limits StoreLimits, cm ClientMetrics, ownsTenantFn downloads.IndexGatewayOwnsTenant, registerer prometheus.Registerer) (index.Client, error) {
 	switch periodCfg.IndexType {
 	case config.StorageTypeInMemory:
 		store := testutils.NewMockStorage()
@@ -199,7 +199,6 @@ func NewIndexClient(periodCfg config.PeriodConfig, getTableRange func() config.T
 			return nil, err
 		}
 
-		tableRange := getTableRange()
 		prefix := fmt.Sprintf("%s_%d", periodCfg.ObjectType, tableRange.Start)
 		return shipper.NewShipper(prefix, cfg.BoltDBShipperConfig, objectClient, limits,
 			ownsTenantFn, tableRange, registerer)
